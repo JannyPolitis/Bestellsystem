@@ -305,7 +305,7 @@ export default function Admin() {
       <div className="min-h-screen flex items-center justify-center px-4" style={{ backgroundColor: '#FFF8F2' }}>
         <div className="bg-white rounded-2xl shadow-md p-8 max-w-sm w-full">
           <div className="text-center mb-6">
-            <img src={logo} alt="Pizza Squad" className="w-20 h-20 rounded-full object-cover mx-auto" />
+            <img src={logo} alt="Pizza Squad" className="w-28 h-28 rounded-full object-cover mx-auto" />
             <h1 className="text-2xl font-bold text-gray-800 mt-2">Admin-Bereich</h1>
           </div>
           <form onSubmit={handleLogin} className="space-y-4">
@@ -345,7 +345,7 @@ export default function Admin() {
         <div className="max-w-4xl mx-auto px-4">
           <div className="flex items-center justify-between py-3.5">
             <div className="flex items-center gap-2">
-              <img src={logo} alt="Pizza Squad" className="w-9 h-9 rounded-full object-cover" />
+              <img src={logo} alt="Pizza Squad" className="w-12 h-12 rounded-full object-cover" />
               <h1 className="text-lg font-bold text-gray-800">Pizza Squad Admin</h1>
               {(laedt || pizzenLaedt) && <span className="animate-spin text-sm ml-1">🔄</span>}
             </div>
