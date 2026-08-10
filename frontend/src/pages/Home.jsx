@@ -3,14 +3,24 @@ import Navbar from '../components/Navbar.jsx';
 import CartDrawer from '../components/CartDrawer.jsx';
 import PizzaCard from '../components/PizzaCard.jsx';
 import QuantityModal from '../components/QuantityModal.jsx';
+import Geschlossen from '../components/Geschlossen.jsx';
 
 export default function Home() {
+  const [status, setStatus] = useState(null);
   const [pizzas, setPizzas] = useState([]);
   const [loading, setLoading] = useState(true);
   const [fehler, setFehler] = useState('');
   const [selectedPizza, setSelectedPizza] = useState(null);
 
   useEffect(() => {
+    fetch('/api/status')
+      .then(r => r.json())
+      .then(setStatus)
+      .catch(() => setStatus({ offen: true, event: null }));
+  }, []);
+
+  useEffect(() => {
+    if (!status?.offen) return;
     fetch('/api/pizzas')
       .then(r => {
         if (!r.ok) throw new Error('Fehler beim Laden');
@@ -24,7 +34,19 @@ export default function Home() {
         setFehler('Pizzen konnten nicht geladen werden. Ist der Server gestartet?');
         setLoading(false);
       });
-  }, []);
+  }, [status]);
+
+  if (status === null) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center gap-4" style={{ backgroundColor: '#FFF8F2' }}>
+        <span className="text-5xl animate-spin">🍕</span>
+      </div>
+    );
+  }
+
+  if (!status.offen) {
+    return <Geschlossen event={status.event} />;
+  }
 
   return (
     <div className="min-h-screen" style={{ backgroundColor: '#FFF8F2' }}>

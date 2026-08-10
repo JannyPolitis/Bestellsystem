@@ -35,6 +35,13 @@ test('GET /api/pizzas liefert die Speisekarte', async () => {
   assert.ok(res.body[0].preis > 0);
 });
 
+test('GET /api/status liefert standardmaessig offenen Shop ohne Event', async () => {
+  const res = await request(app).get('/api/status');
+  assert.equal(res.status, 200);
+  assert.equal(res.body.offen, true);
+  assert.deepEqual(res.body.event, { datum: '', uhrzeit: '', ort: '' });
+});
+
 test('Bestellung ignoriert einen vom Client manipulierten Preis', async () => {
   const pizzasRes = await request(app).get('/api/pizzas');
   const pizza = pizzasRes.body[0];
@@ -72,6 +79,111 @@ test('Bestellung mit ungueltiger Menge wird abgelehnt', async () => {
   const res = await request(app)
     .post('/api/bestellung')
     .send({ artikel: [{ id: pizza.id, preis: pizza.preis, menge: -1 }] });
+  assert.equal(res.status, 400);
+});
+
+test('POST /api/admin/bestellung ohne Session ist gesperrt', async () => {
+  const res = await request(app).post('/api/admin/bestellung').send({ artikel: [] });
+  assert.equal(res.status, 401);
+});
+
+test('Theken-Bestellung wird mit quelle "theke" gespeichert, Online-Bestellung mit "online"', async () => {
+  const cookie = await alsAdminEingeloggt();
+  const pizzasRes = await request(app).get('/api/pizzas');
+  const pizza = pizzasRes.body[0];
+
+  const thekenRes = await request(app)
+    .post('/api/admin/bestellung')
+    .set('Cookie', cookie)
+    .send({ artikel: [{ id: pizza.id, menge: 2 }] });
+
+  assert.equal(thekenRes.status, 200);
+  assert.ok(thekenRes.body.bestellnummer);
+  assert.equal(thekenRes.body.gesamtpreis, pizza.preis * 2);
+
+  const onlineRes = await request(app)
+    .post('/api/bestellung')
+    .send({ artikel: [{ id: pizza.id, menge: 1 }] });
+
+  const liste = await request(app).get('/api/admin/bestellungen').set('Cookie', cookie);
+  const theke = liste.body.find(b => b.bestellnummer === thekenRes.body.bestellnummer);
+  const online = liste.body.find(b => b.bestellnummer === onlineRes.body.bestellnummer);
+
+  assert.equal(theke.quelle, 'theke');
+  assert.equal(online.quelle, 'online');
+});
+
+test('Theken-Bestellung mit ungueltigen Artikeln wird abgelehnt', async () => {
+  const cookie = await alsAdminEingeloggt();
+  const res = await request(app)
+    .post('/api/admin/bestellung')
+    .set('Cookie', cookie)
+    .send({ artikel: [{ id: 999999, menge: 1 }] });
+  assert.equal(res.status, 400);
+});
+
+test('PUT /api/admin/shop-status ohne Session ist gesperrt', async () => {
+  const res = await request(app).put('/api/admin/shop-status').send({ offen: false });
+  assert.equal(res.status, 401);
+});
+
+test('Geschlossener Shop lehnt neue Bestellungen ab, offener Shop nicht', async () => {
+  const cookie = await alsAdminEingeloggt();
+  const pizzasRes = await request(app).get('/api/pizzas');
+  const pizza = pizzasRes.body[0];
+
+  const schliessenRes = await request(app)
+    .put('/api/admin/shop-status')
+    .set('Cookie', cookie)
+    .send({ offen: false });
+  assert.equal(schliessenRes.status, 200);
+  assert.equal(schliessenRes.body.offen, false);
+
+  const statusRes = await request(app).get('/api/status');
+  assert.equal(statusRes.body.offen, false);
+
+  const bestellRes = await request(app)
+    .post('/api/bestellung')
+    .send({ artikel: [{ id: pizza.id, menge: 1 }] });
+  assert.equal(bestellRes.status, 403);
+
+  const oeffnenRes = await request(app)
+    .put('/api/admin/shop-status')
+    .set('Cookie', cookie)
+    .send({ offen: true });
+  assert.equal(oeffnenRes.body.offen, true);
+
+  const bestellRes2 = await request(app)
+    .post('/api/bestellung')
+    .send({ artikel: [{ id: pizza.id, menge: 1 }] });
+  assert.equal(bestellRes2.status, 200);
+});
+
+test('PUT /api/admin/event ohne Session ist gesperrt', async () => {
+  const res = await request(app).put('/api/admin/event').send({ datum: '2026-08-20', uhrzeit: '18:00', ort: 'Marktplatz' });
+  assert.equal(res.status, 401);
+});
+
+test('Admin kann das naechste Event speichern', async () => {
+  const cookie = await alsAdminEingeloggt();
+  const res = await request(app)
+    .put('/api/admin/event')
+    .set('Cookie', cookie)
+    .send({ datum: '2026-08-20', uhrzeit: '18:00', ort: 'Marktplatz Musterstadt' });
+
+  assert.equal(res.status, 200);
+  assert.deepEqual(res.body.event, { datum: '2026-08-20', uhrzeit: '18:00', ort: 'Marktplatz Musterstadt' });
+
+  const statusRes = await request(app).get('/api/status');
+  assert.deepEqual(statusRes.body.event, { datum: '2026-08-20', uhrzeit: '18:00', ort: 'Marktplatz Musterstadt' });
+});
+
+test('Event mit ungueltigem Datumsformat wird abgelehnt', async () => {
+  const cookie = await alsAdminEingeloggt();
+  const res = await request(app)
+    .put('/api/admin/event')
+    .set('Cookie', cookie)
+    .send({ datum: '20.08.2026', uhrzeit: '18:00', ort: 'Marktplatz' });
   assert.equal(res.status, 400);
 });
 
@@ -253,4 +365,17 @@ test('Loeschen einer unbekannten Pizza-ID liefert 404', async () => {
   const cookie = await alsAdminEingeloggt();
   const res = await request(app).delete('/api/admin/pizzas/999999').set('Cookie', cookie);
   assert.equal(res.status, 404);
+});
+
+// Laeuft bewusst als letzter Test: loescht alle Bestellungen, damit vorherige Tests
+// (die auf vorhandenen Bestellungen aufbauen) davon unberuehrt bleiben.
+test('Tagesabschluss schliesst den Shop', async () => {
+  const cookie = await alsAdminEingeloggt();
+  await request(app).put('/api/admin/shop-status').set('Cookie', cookie).send({ offen: true });
+
+  const res = await request(app).post('/api/admin/tagesabschluss').set('Cookie', cookie);
+  assert.equal(res.status, 200);
+
+  const statusRes = await request(app).get('/api/status');
+  assert.equal(statusRes.body.offen, false);
 });
