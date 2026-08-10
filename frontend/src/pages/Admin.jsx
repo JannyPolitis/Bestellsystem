@@ -1,14 +1,14 @@
 import { useState, useEffect, useCallback } from 'react';
 
 const STATUS = {
-  bezahlt:   { label: 'Neu',       badge: 'bg-blue-100 text-blue-700',   next: 'in_arbeit', nextLabel: '→ In Bearbeitung', nextColor: 'bg-amber-500 hover:bg-amber-600' },
+  neu:       { label: 'Neu',       badge: 'bg-blue-100 text-blue-700',   next: 'in_arbeit', nextLabel: '→ In Bearbeitung', nextColor: 'bg-amber-500 hover:bg-amber-600' },
   in_arbeit: { label: 'In Arbeit', badge: 'bg-amber-100 text-amber-700', next: 'fertig',    nextLabel: '✓ Fertig',         nextColor: 'bg-green-500 hover:bg-green-600' },
   fertig:    { label: 'Fertig',    badge: 'bg-green-100 text-green-700', next: null,        nextLabel: null,               nextColor: '' },
 };
 
 const TABS = [
   { key: 'alle',      label: 'Alle' },
-  { key: 'bezahlt',   label: 'Neu' },
+  { key: 'neu',       label: 'Neu' },
   { key: 'in_arbeit', label: 'In Arbeit' },
   { key: 'fertig',    label: 'Fertig' },
 ];
@@ -374,7 +374,7 @@ export default function Admin() {
         ) : (
           <div className="space-y-4">
             {gefiltert.map(b => {
-              const s = STATUS[b.status] || STATUS.bezahlt;
+              const s = STATUS[b.status] || STATUS.neu;
               return (
                 <div key={b.id} className="bg-white rounded-2xl shadow-sm p-5 border border-gray-50">
                   <div className="flex items-center justify-between mb-3">

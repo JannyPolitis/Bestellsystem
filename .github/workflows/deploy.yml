@@ -37,8 +37,6 @@ jobs:
         working-directory: frontend
       - run: npm run build
         working-directory: frontend
-        env:
-          VITE_PAYPAL_CLIENT_ID: ${{ secrets.VITE_PAYPAL_CLIENT_ID }}
       - uses: actions/upload-artifact@v4
         with:
           name: frontend-dist

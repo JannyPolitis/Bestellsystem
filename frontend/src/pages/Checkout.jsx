@@ -1,6 +1,5 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { PayPalButtons } from '@paypal/react-paypal-js';
 import { useCart } from '../context/CartContext.jsx';
 
 export default function Checkout() {
@@ -8,27 +7,19 @@ export default function Checkout() {
   const navigate = useNavigate();
   const [fehler, setFehler] = useState('');
   const [verarbeitung, setVerarbeitung] = useState(false);
-  const [demoModus, setDemoModus] = useState(false);
 
-  useEffect(() => {
-    fetch('/api/config')
-      .then(r => r.json())
-      .then(d => setDemoModus(d.demoModus || false))
-      .catch(() => {});
-  }, []);
-
-  const handleDemoBestellung = async () => {
+  const handleBestellen = async () => {
     setVerarbeitung(true);
     setFehler('');
     try {
-      const res = await fetch('/api/bestellung/demo', {
+      const res = await fetch('/api/bestellung', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ artikel: items }),
       });
       if (!res.ok) {
         const d = await res.json().catch(() => ({}));
-        setFehler(d.error || 'Demo-Fehler');
+        setFehler(d.error || 'Fehler beim Aufgeben der Bestellung');
         setVerarbeitung(false);
         return;
       }
@@ -56,14 +47,6 @@ export default function Checkout() {
   return (
     <div className="min-h-screen py-10 px-4" style={{ backgroundColor: '#FFF8F2' }}>
       <div className="max-w-lg mx-auto">
-
-        {/* Demo-Banner */}
-        {demoModus && (
-          <div className="mb-5 flex items-center gap-2 bg-amber-50 border border-amber-200 text-amber-700 rounded-xl px-4 py-3 text-sm font-medium">
-            <span className="text-lg">🧪</span>
-            <span>Demo-Modus aktiv — Bestellungen werden ohne echte Zahlung gespeichert.</span>
-          </div>
-        )}
 
         <Link to="/" className="text-gray-400 hover:text-gray-600 text-sm mb-6 inline-flex items-center gap-1">
           ← Zurück zur Speisekarte
@@ -100,9 +83,14 @@ export default function Checkout() {
 
         {/* Zahlung */}
         <div className="bg-white rounded-2xl shadow-md p-6">
-          <h2 className="text-sm font-bold text-gray-500 mb-5 uppercase tracking-wide">
-            {demoModus ? 'Demo-Zahlung' : 'Sicher bezahlen mit PayPal'}
+          <h2 className="text-sm font-bold text-gray-500 mb-3 uppercase tracking-wide">
+            Bezahlung
           </h2>
+
+          <div className="mb-5 flex items-center gap-2 bg-amber-50 border border-amber-200 text-amber-700 rounded-xl px-4 py-3 text-sm font-medium">
+            <span className="text-lg">💶</span>
+            <span>Bitte bar bei Abholung bezahlen — passend zahlen hilft uns sehr!</span>
+          </div>
 
           {fehler && (
             <div className="mb-4 p-3 bg-red-50 border border-red-100 text-red-600 rounded-xl text-sm">
@@ -110,64 +98,20 @@ export default function Checkout() {
             </div>
           )}
 
-          {verarbeitung && (
-            <div className="flex items-center justify-center gap-3 py-6 text-gray-400">
-              <span className="animate-spin text-2xl">🍕</span>
-              <span>Bestellung wird verarbeitet …</span>
-            </div>
-          )}
-
-          {!verarbeitung && demoModus && (
-            <button
-              onClick={handleDemoBestellung}
-              className="w-full bg-amber-400 hover:bg-amber-500 text-white font-bold py-4 rounded-xl transition-colors text-base flex items-center justify-center gap-2"
-            >
-              <span>🧪</span>
-              <span>Demo-Bestellung aufgeben</span>
-            </button>
-          )}
-
-          {!verarbeitung && !demoModus && (
-            <PayPalButtons
-              style={{ layout: 'vertical', shape: 'rect', label: 'pay', height: 48 }}
-              createOrder={async () => {
-                setFehler('');
-                const res = await fetch('/api/bestellung/paypal-order', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  credentials: 'include',
-                  body: JSON.stringify({ artikel: items }),
-                });
-                if (!res.ok) {
-                  const data = await res.json().catch(() => ({}));
-                  throw new Error(data.error || 'Server-Fehler');
-                }
-                const { id } = await res.json();
-                return id;
-              }}
-              onApprove={async (data) => {
-                setVerarbeitung(true);
-                setFehler('');
-                const res = await fetch('/api/bestellung/paypal-capture', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  credentials: 'include',
-                  body: JSON.stringify({ paypalOrderId: data.orderID, artikel: items }),
-                });
-                if (!res.ok) {
-                  const d = await res.json().catch(() => ({}));
-                  setFehler(d.error || 'Fehler beim Abschließen der Bestellung');
-                  setVerarbeitung(false);
-                  return;
-                }
-                const { bestellnummer } = await res.json();
-                leeren();
-                navigate(`/bestaetigung/${encodeURIComponent(bestellnummer)}`);
-              }}
-              onError={() => setFehler('Zahlung fehlgeschlagen. Bitte versuche es erneut.')}
-              onCancel={() => setFehler('Zahlung abgebrochen.')}
-            />
-          )}
+          <button
+            onClick={handleBestellen}
+            disabled={verarbeitung}
+            className="w-full bg-red-600 hover:bg-red-700 disabled:opacity-60 text-white font-bold py-4 rounded-xl transition-colors text-base flex items-center justify-center gap-2"
+          >
+            {verarbeitung ? (
+              <>
+                <span className="animate-spin text-xl">🍕</span>
+                <span>Bestellung wird aufgegeben …</span>
+              </>
+            ) : (
+              <span>Bestellung aufgeben</span>
+            )}
+          </button>
         </div>
       </div>
     </div>

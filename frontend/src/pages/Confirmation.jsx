@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 const SCHRITTE = ['Bestellt', 'In Zubereitung', 'Abholbereit'];
 
 const STATUS_CONFIG = {
-  bezahlt: {
+  neu: {
     schritt: 0,
     bg: 'bg-blue-50',
     iconBg: 'bg-blue-100',
@@ -15,7 +15,7 @@ const STATUS_CONFIG = {
       </svg>
     ),
     titel: 'Bestellung eingegangen!',
-    text: 'Deine Bestellung wurde erfolgreich aufgegeben.',
+    text: 'Deine Bestellung wurde erfolgreich aufgegeben. Bitte bar bei Abholung bezahlen.',
     hinweis: 'Diese Seite aktualisiert sich automatisch.',
   },
   in_arbeit: {
@@ -77,7 +77,7 @@ function Fortschrittsleiste({ schritt }) {
 export default function Confirmation() {
   const { bestellnummer } = useParams();
   const decodedNr = decodeURIComponent(bestellnummer);
-  const [status, setStatus] = useState('bezahlt');
+  const [status, setStatus] = useState('neu');
   const pollingRef = useRef(true);
 
   useEffect(() => {
@@ -89,7 +89,7 @@ export default function Confirmation() {
         const res = await fetch(`/api/bestellung/${encodeURIComponent(decodedNr)}/status`);
         if (res.ok) {
           const data = await res.json();
-          const neuerStatus = data.status || 'bezahlt';
+          const neuerStatus = data.status || 'neu';
           setStatus(neuerStatus);
           if (neuerStatus === 'fertig') pollingRef.current = false;
         } else if (res.status === 404) {
@@ -105,7 +105,7 @@ export default function Confirmation() {
     return () => { pollingRef.current = false; clearInterval(interval); };
   }, [decodedNr]);
 
-  const cfg = STATUS_CONFIG[status] || STATUS_CONFIG.bezahlt;
+  const cfg = STATUS_CONFIG[status] || STATUS_CONFIG.neu;
 
   return (
     <div className="min-h-screen flex items-center justify-center px-4 py-10" style={{ backgroundColor: '#FFF8F2' }}>

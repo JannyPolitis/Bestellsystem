@@ -8,7 +8,6 @@ const path = require('path');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
-const PAYPAL_BASE = process.env.PAYPAL_BASE_URL || 'https://api-m.sandbox.paypal.com';
 const DB_FILE = process.env.DB_FILE || path.join(__dirname, 'bestellungen.db');
 
 // --- DB-Hilfsfunktionen ---
@@ -107,9 +106,7 @@ function initDb() {
     bestellnummer TEXT UNIQUE NOT NULL,
     artikel TEXT NOT NULL,
     gesamtpreis REAL NOT NULL,
-    paypal_order_id TEXT,
-    paypal_capture_id TEXT,
-    status TEXT DEFAULT 'bezahlt',
+    status TEXT DEFAULT 'neu',
     erstellt_am TEXT DEFAULT (strftime('%Y-%m-%d %H:%M:%S', 'now', 'localtime'))
   )`);
   db.exec(`CREATE TABLE IF NOT EXISTS einstellungen (
@@ -149,26 +146,9 @@ app.use(session({
   cookie: { httpOnly: true, maxAge: 8 * 60 * 60 * 1000 },
 }));
 
-// --- PayPal-Token ---
-async function paypalToken() {
-  const creds = Buffer.from(`${process.env.PAYPAL_CLIENT_ID}:${process.env.PAYPAL_CLIENT_SECRET}`).toString('base64');
-  const res = await fetch(`${PAYPAL_BASE}/v1/oauth2/token`, {
-    method: 'POST',
-    headers: { Authorization: `Basic ${creds}`, 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: 'grant_type=client_credentials',
-  });
-  const data = await res.json();
-  if (!data.access_token) throw new Error('Kein PayPal Token: ' + JSON.stringify(data));
-  return data.access_token;
-}
-
 // =============================================================
 // ROUTEN
 // =============================================================
-
-app.get('/api/config', (_req, res) => {
-  res.json({ demoModus: process.env.DEMO_MODUS === 'true' });
-});
 
 app.get('/api/pizzas', (_req, res) => {
   res.json(dbAll('SELECT * FROM pizzas WHERE verfuegbar = 1 ORDER BY id'));
@@ -181,77 +161,8 @@ app.get('/api/bestellung/:nr/status', (req, res) => {
   res.json({ status: String(row.status) });
 });
 
-// PayPal: Order anlegen
-app.post('/api/bestellung/paypal-order', async (req, res) => {
-  try {
-    const artikel = validiereArtikel(req.body.artikel);
-    if (!artikel) return res.status(400).json({ error: 'Ungueltige Artikel' });
-
-    const gesamt = artikel.reduce((s, a) => s + a.preis * a.menge, 0);
-    const token = await paypalToken();
-
-    const resp = await fetch(`${PAYPAL_BASE}/v2/checkout/orders`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        intent: 'CAPTURE',
-        purchase_units: [{
-          amount: {
-            currency_code: 'EUR', value: gesamt.toFixed(2),
-            breakdown: { item_total: { currency_code: 'EUR', value: gesamt.toFixed(2) } },
-          },
-          items: artikel.map(a => ({
-            name: `${a.name} (30cm)`,
-            unit_amount: { currency_code: 'EUR', value: parseFloat(a.preis).toFixed(2) },
-            quantity: String(a.menge),
-          })),
-        }],
-      }),
-    });
-    const order = await resp.json();
-    if (!order.id) throw new Error(JSON.stringify(order));
-    res.json({ id: order.id });
-  } catch (err) {
-    console.error('PayPal Order Fehler:', err.message);
-    res.status(500).json({ error: 'PayPal-Fehler beim Erstellen der Bestellung' });
-  }
-});
-
-// PayPal: Zahlung erfassen & Bestellung speichern
-app.post('/api/bestellung/paypal-capture', async (req, res) => {
-  try {
-    const { paypalOrderId } = req.body;
-    const artikel = validiereArtikel(req.body.artikel);
-    if (!paypalOrderId || !artikel) return res.status(400).json({ error: 'Fehlende oder ungueltige Daten' });
-
-    const token = await paypalToken();
-    const resp = await fetch(`${PAYPAL_BASE}/v2/checkout/orders/${paypalOrderId}/capture`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-    });
-    const capture = await resp.json();
-    if (capture.status !== 'COMPLETED') return res.status(400).json({ error: 'Zahlung nicht abgeschlossen' });
-
-    const bestellnummer = naechsteBestellnummer();
-    const gesamt = artikel.reduce((s, a) => s + a.preis * a.menge, 0);
-    const captureId = capture.purchase_units?.[0]?.payments?.captures?.[0]?.id || '';
-
-    dbRun(
-      `INSERT INTO bestellungen (bestellnummer, artikel, gesamtpreis, paypal_order_id, paypal_capture_id, status) VALUES (?, ?, ?, ?, ?, 'bezahlt')`,
-      [bestellnummer, JSON.stringify(artikel), gesamt, paypalOrderId, captureId]
-    );
-
-    console.log(`Neue Bestellung: #${bestellnummer} (${gesamt.toFixed(2)} EUR)`);
-    res.json({ bestellnummer });
-  } catch (err) {
-    console.error('Capture Fehler:', err.message);
-    res.status(500).json({ error: 'Fehler beim Speichern der Bestellung' });
-  }
-});
-
-// Demo-Bestellung (ohne PayPal)
-app.post('/api/bestellung/demo', (req, res) => {
-  if (process.env.DEMO_MODUS !== 'true') return res.status(403).json({ error: 'Demo-Modus nicht aktiv' });
+// Bestellung aufgeben (Barzahlung bei Abholung)
+app.post('/api/bestellung', (req, res) => {
   const artikel = validiereArtikel(req.body.artikel);
   if (!artikel) return res.status(400).json({ error: 'Ungueltige Artikel' });
 
@@ -259,12 +170,12 @@ app.post('/api/bestellung/demo', (req, res) => {
   const gesamt = artikel.reduce((s, a) => s + a.preis * a.menge, 0);
 
   dbRun(
-    `INSERT INTO bestellungen (bestellnummer, artikel, gesamtpreis, paypal_order_id, paypal_capture_id, status) VALUES (?, ?, ?, ?, ?, 'bezahlt')`,
-    [bestellnummer, JSON.stringify(artikel), gesamt, 'DEMO', 'DEMO']
+    `INSERT INTO bestellungen (bestellnummer, artikel, gesamtpreis, status) VALUES (?, ?, ?, 'neu')`,
+    [bestellnummer, JSON.stringify(artikel), gesamt]
   );
 
-  console.log(`[DEMO] Bestellung: #${bestellnummer} (${gesamt.toFixed(2)} EUR)`);
-  res.json({ bestellnummer });
+  console.log(`Neue Bestellung: #${bestellnummer} (${gesamt.toFixed(2)} EUR, bar bei Abholung)`);
+  res.json({ bestellnummer, gesamtpreis: gesamt });
 });
 
 // =============================================================
@@ -295,7 +206,7 @@ app.get('/api/admin/bestellungen', requireAdmin, (_req, res) => {
 
 app.put('/api/admin/bestellungen/:id/status', requireAdmin, (req, res) => {
   const { status } = req.body;
-  if (!['bezahlt', 'in_arbeit', 'fertig'].includes(status)) {
+  if (!['neu', 'in_arbeit', 'fertig'].includes(status)) {
     return res.status(400).json({ error: 'Ungueltiger Status' });
   }
   dbRun('UPDATE bestellungen SET status = ? WHERE id = ?', [status, req.params.id]);
