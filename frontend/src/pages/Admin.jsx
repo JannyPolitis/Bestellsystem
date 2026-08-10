@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import PizzaFormModal from '../components/PizzaFormModal.jsx';
 
 const STATUS = {
   neu:       { label: 'Neu',       badge: 'bg-blue-100 text-blue-700',   next: 'in_arbeit', nextLabel: '→ In Bearbeitung', nextColor: 'bg-amber-500 hover:bg-amber-600' },
@@ -189,6 +190,53 @@ export default function Admin() {
   const [tab, setTab] = useState('alle');
   const [bilanzOffen, setBilanzOffen] = useState(false);
   const [erfolg, setErfolg] = useState('');
+  const [ansicht, setAnsicht] = useState('bestellungen');
+  const [pizzen, setPizzen] = useState([]);
+  const [pizzenLaedt, setPizzenLaedt] = useState(false);
+  const [pizzaFormOffen, setPizzaFormOffen] = useState(false);
+  const [bearbeitetePizza, setBearbeitetePizza] = useState(null);
+
+  const ladePizzen = useCallback(async () => {
+    setPizzenLaedt(true);
+    try {
+      const res = await fetch('/api/admin/pizzas', { credentials: 'include' });
+      if (res.ok) setPizzen(await res.json());
+    } finally {
+      setPizzenLaedt(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (eingeloggt && ansicht === 'speisekarte' && pizzen.length === 0) ladePizzen();
+  }, [eingeloggt, ansicht, pizzen.length, ladePizzen]);
+
+  const handlePizzaGespeichert = (pizza) => {
+    setPizzen(prev => {
+      const existiert = prev.some(p => p.id === pizza.id);
+      return existiert ? prev.map(p => p.id === pizza.id ? pizza : p) : [...prev, pizza];
+    });
+    setPizzaFormOffen(false);
+    setBearbeitetePizza(null);
+  };
+
+  const handlePizzaLoeschen = async (pizza) => {
+    if (!window.confirm(`"${pizza.name}" wirklich von der Speisekarte loeschen?`)) return;
+    const res = await fetch(`/api/admin/pizzas/${pizza.id}`, { method: 'DELETE', credentials: 'include' });
+    if (res.ok) setPizzen(prev => prev.filter(p => p.id !== pizza.id));
+  };
+
+  const handleVerfuegbarkeitUmschalten = async (pizza) => {
+    const formData = new FormData();
+    formData.append('name', pizza.name);
+    formData.append('beschreibung', pizza.beschreibung || '');
+    formData.append('preis', String(pizza.preis));
+    formData.append('verfuegbar', String(!pizza.verfuegbar));
+    const res = await fetch(`/api/admin/pizzas/${pizza.id}`, { method: 'PUT', credentials: 'include', body: formData });
+    if (res.ok) {
+      const aktualisiert = await res.json();
+      setPizzen(prev => prev.map(p => p.id === pizza.id ? aktualisiert : p));
+    }
+  };
 
   useEffect(() => {
     fetch('/api/admin/check', { credentials: 'include' })
@@ -297,16 +345,18 @@ export default function Admin() {
           <div className="flex items-center justify-between py-3.5">
             <div className="flex items-center gap-2">
               <span className="text-2xl">🍕</span>
-              <h1 className="text-lg font-bold text-gray-800">Bestellübersicht</h1>
-              {laedt && <span className="animate-spin text-sm ml-1">🔄</span>}
+              <h1 className="text-lg font-bold text-gray-800">Pizza Squad Admin</h1>
+              {(laedt || pizzenLaedt) && <span className="animate-spin text-sm ml-1">🔄</span>}
             </div>
             <div className="flex items-center gap-2">
-              <button
-                onClick={ladeBestellungen}
-                className="text-gray-400 hover:text-gray-600 px-3 py-1.5 rounded-lg hover:bg-gray-100 transition-colors text-sm"
-              >
-                Aktualisieren
-              </button>
+              {ansicht === 'bestellungen' && (
+                <button
+                  onClick={ladeBestellungen}
+                  className="text-gray-400 hover:text-gray-600 px-3 py-1.5 rounded-lg hover:bg-gray-100 transition-colors text-sm"
+                >
+                  Aktualisieren
+                </button>
+              )}
               <button
                 onClick={() => setBilanzOffen(true)}
                 className="bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded-lg transition-colors text-sm font-semibold flex items-center gap-1"
@@ -323,30 +373,50 @@ export default function Admin() {
             </div>
           </div>
 
-          {/* Tabs */}
+          {/* Ansicht-Umschalter */}
           <div className="flex gap-1 -mb-px">
-            {TABS.map(t => {
-              const cnt = t.key === 'alle' ? bestellungen.length : bestellungen.filter(b => b.status === t.key).length;
-              return (
-                <button
-                  key={t.key}
-                  onClick={() => setTab(t.key)}
-                  className={`px-4 py-2.5 text-sm font-medium rounded-t-lg border-b-2 transition-colors ${
-                    tab === t.key ? 'border-red-600 text-red-600' : 'border-transparent text-gray-400 hover:text-gray-600'
-                  }`}
-                >
-                  {t.label}
-                  {cnt > 0 && (
-                    <span className={`ml-1.5 text-xs px-1.5 py-0.5 rounded-full ${
-                      tab === t.key ? 'bg-red-100 text-red-600' : 'bg-gray-100 text-gray-400'
-                    }`}>
-                      {cnt}
-                    </span>
-                  )}
-                </button>
-              );
-            })}
+            {[
+              { key: 'bestellungen', label: 'Bestellungen' },
+              { key: 'speisekarte', label: 'Speisekarte' },
+            ].map(a => (
+              <button
+                key={a.key}
+                onClick={() => setAnsicht(a.key)}
+                className={`px-4 py-2.5 text-sm font-semibold rounded-t-lg border-b-2 transition-colors ${
+                  ansicht === a.key ? 'border-red-600 text-red-600' : 'border-transparent text-gray-400 hover:text-gray-600'
+                }`}
+              >
+                {a.label}
+              </button>
+            ))}
           </div>
+
+          {/* Bestellstatus-Tabs (nur in der Bestellungen-Ansicht) */}
+          {ansicht === 'bestellungen' && (
+            <div className="flex gap-1 -mb-px pt-1">
+              {TABS.map(t => {
+                const cnt = t.key === 'alle' ? bestellungen.length : bestellungen.filter(b => b.status === t.key).length;
+                return (
+                  <button
+                    key={t.key}
+                    onClick={() => setTab(t.key)}
+                    className={`px-4 py-2 text-sm font-medium rounded-t-lg border-b-2 transition-colors ${
+                      tab === t.key ? 'border-red-600 text-red-600' : 'border-transparent text-gray-400 hover:text-gray-600'
+                    }`}
+                  >
+                    {t.label}
+                    {cnt > 0 && (
+                      <span className={`ml-1.5 text-xs px-1.5 py-0.5 rounded-full ${
+                        tab === t.key ? 'bg-red-100 text-red-600' : 'bg-gray-100 text-gray-400'
+                      }`}>
+                        {cnt}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
       </div>
 
@@ -359,7 +429,89 @@ export default function Admin() {
         </div>
       )}
 
+      {ansicht === 'speisekarte' && (
+        <>
+          {pizzaFormOffen && (
+            <PizzaFormModal
+              pizza={bearbeitetePizza}
+              onClose={() => { setPizzaFormOffen(false); setBearbeitetePizza(null); }}
+              onSaved={handlePizzaGespeichert}
+            />
+          )}
+
+          <div className="max-w-4xl mx-auto px-4 py-5">
+            <div className="flex justify-end mb-4">
+              <button
+                onClick={() => { setBearbeitetePizza(null); setPizzaFormOffen(true); }}
+                className="bg-red-600 hover:bg-red-700 text-white px-4 py-2.5 rounded-xl font-semibold text-sm flex items-center gap-1.5"
+              >
+                <span>+</span> Neue Pizza
+              </button>
+            </div>
+
+            {pizzenLaedt && pizzen.length === 0 ? (
+              <div className="flex flex-col items-center py-24 gap-3 text-gray-300">
+                <span className="text-5xl animate-spin">🍕</span>
+                <p>Lädt …</p>
+              </div>
+            ) : pizzen.length === 0 ? (
+              <div className="text-center py-24 text-gray-300">
+                <p className="text-5xl mb-3">🍕</p>
+                <p>Noch keine Pizzen angelegt</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {pizzen.map(p => (
+                  <div key={p.id} className={`bg-white rounded-2xl shadow-sm border border-gray-50 overflow-hidden ${!p.verfuegbar ? 'opacity-60' : ''}`}>
+                    <div className="h-32 bg-gray-100 flex items-center justify-center overflow-hidden">
+                      {p.bild_url ? (
+                        <img src={p.bild_url} alt={p.name} className="w-full h-full object-cover" />
+                      ) : (
+                        <span className="text-4xl">🍕</span>
+                      )}
+                    </div>
+                    <div className="p-4">
+                      <div className="flex items-start justify-between gap-2 mb-1">
+                        <h3 className="font-bold text-gray-800">{p.name}</h3>
+                        <span className="font-bold text-red-600 shrink-0">€ {p.preis.toFixed(2)}</span>
+                      </div>
+                      <p className="text-xs text-gray-400 mb-3 line-clamp-2">{p.beschreibung}</p>
+                      <div className="flex items-center justify-between">
+                        <label className="flex items-center gap-1.5 text-xs text-gray-500 cursor-pointer select-none">
+                          <input
+                            type="checkbox"
+                            checked={Boolean(p.verfuegbar)}
+                            onChange={() => handleVerfuegbarkeitUmschalten(p)}
+                            className="w-3.5 h-3.5 accent-red-600"
+                          />
+                          Sichtbar
+                        </label>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => { setBearbeitetePizza(p); setPizzaFormOffen(true); }}
+                            className="text-gray-400 hover:text-red-600 text-xs font-semibold px-2 py-1 rounded-lg hover:bg-red-50 transition-colors"
+                          >
+                            Bearbeiten
+                          </button>
+                          <button
+                            onClick={() => handlePizzaLoeschen(p)}
+                            className="text-gray-400 hover:text-red-600 text-xs font-semibold px-2 py-1 rounded-lg hover:bg-red-50 transition-colors"
+                          >
+                            Löschen
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </>
+      )}
+
       {/* Bestellungen */}
+      {ansicht === 'bestellungen' && (
       <div className="max-w-4xl mx-auto px-4 py-5">
         {laedt && bestellungen.length === 0 ? (
           <div className="flex flex-col items-center py-24 gap-3 text-gray-300">
@@ -420,6 +572,7 @@ export default function Admin() {
           </div>
         )}
       </div>
+      )}
     </div>
   );
 }

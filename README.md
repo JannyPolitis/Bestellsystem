@@ -52,11 +52,14 @@ dort über "In Arbeit" zu "Fertig".
 
 ## Speisekarte anpassen
 
-Die Pizzen werden beim ersten Start automatisch angelegt. Um sie zu ändern:
+Im Admin-Panel unter dem Tab **"Speisekarte"** lassen sich Pizzen direkt verwalten:
+neue Pizzen anlegen, Name/Beschreibung/Preis bearbeiten, ein Foto hochladen (JPEG/PNG/WebP,
+max. 5 MB), die Sichtbarkeit auf der Speisekarte an-/ausschalten oder eine Pizza ganz
+löschen. Keine Server-Neustarts oder DB-Bearbeitung mehr nötig.
 
-1. Datei `backend/bestellungen.db` löschen
-2. In `backend/server.js` die Liste im `initDb`-Block anpassen (Name, Beschreibung, Preis)
-3. Backend neu starten – die neuen Pizzen werden automatisch eingetragen
+Hochgeladene Bilder landen in `backend/uploads/` und werden unter `/uploads/...`
+ausgeliefert. Dieser Ordner wird von Git und vom Deploy-Prozess ignoriert bzw. nie
+überschrieben, damit Bilder einen Deploy überstehen.
 
 ---
 

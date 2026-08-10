@@ -12,6 +12,10 @@ backend/*.db-journal
 backend/*.db-wal
 backend/*.db-shm
 
+# Hochgeladene Pizza-Bilder (nur lokal/auf dem Server, nicht im Repo)
+backend/uploads/*
+!backend/uploads/.gitkeep
+
 # Build-Output
 frontend/dist/
 

@@ -5,10 +5,33 @@ const session = require('express-session');
 const crypto = require('crypto');
 const Database = require('better-sqlite3');
 const path = require('path');
+const fs = require('fs');
+const multer = require('multer');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
 const DB_FILE = process.env.DB_FILE || path.join(__dirname, 'bestellungen.db');
+const UPLOADS_DIR = process.env.UPLOADS_DIR || path.join(__dirname, 'uploads');
+fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+
+const BILD_ENDUNGEN = { 'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp' };
+
+const upload = multer({
+  storage: multer.diskStorage({
+    destination: UPLOADS_DIR,
+    filename: (_req, file, cb) => cb(null, `${crypto.randomUUID()}${BILD_ENDUNGEN[file.mimetype] || ''}`),
+  }),
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    if (!BILD_ENDUNGEN[file.mimetype]) return cb(new Error('Ungueltiger Bildtyp (nur JPEG, PNG, WebP erlaubt)'));
+    cb(null, true);
+  },
+});
+
+function loescheHochgeladenesBild(bildUrl) {
+  if (!bildUrl || !bildUrl.startsWith('/uploads/')) return;
+  fs.unlink(path.join(UPLOADS_DIR, path.basename(bildUrl)), () => {});
+}
 
 // --- DB-Hilfsfunktionen ---
 let db;
@@ -50,6 +73,21 @@ function validiereArtikel(inputArtikel) {
     artikel.push({ id: pizza.id, name: String(pizza.name), preis: pizza.preis, menge });
   }
   return artikel;
+}
+
+// Prueft Name/Beschreibung/Preis/Verfuegbarkeit aus einem Pizza-Formular
+function validierePizzaFelder(body) {
+  const name = String(body?.name ?? '').trim();
+  const beschreibung = String(body?.beschreibung ?? '').trim();
+  const preis = parseFloat(body?.preis);
+  const verfuegbarRoh = body?.verfuegbar;
+  const verfuegbar = verfuegbarRoh === undefined || verfuegbarRoh === 'true' || verfuegbarRoh === true || verfuegbarRoh === '1' ? 1 : 0;
+
+  if (!name || name.length > 100) return null;
+  if (beschreibung.length > 500) return null;
+  if (!Number.isFinite(preis) || preis <= 0 || preis > 200) return null;
+
+  return { name, beschreibung, preis, verfuegbar };
 }
 
 // Naechste 3-stellige Bestellnummer (100-999) aus Einstellungen
@@ -145,6 +183,7 @@ app.use(session({
   saveUninitialized: false,
   cookie: { httpOnly: true, maxAge: 8 * 60 * 60 * 1000 },
 }));
+app.use('/uploads', express.static(UPLOADS_DIR));
 
 // =============================================================
 // ROUTEN
@@ -213,6 +252,61 @@ app.put('/api/admin/bestellungen/:id/status', requireAdmin, (req, res) => {
   res.json({ ok: true });
 });
 
+// Admin: alle Pizzen inkl. nicht verfuegbarer, fuer die Speisekarten-Verwaltung
+app.get('/api/admin/pizzas', requireAdmin, (_req, res) => {
+  res.json(dbAll('SELECT * FROM pizzas ORDER BY id'));
+});
+
+// Admin: neue Pizza anlegen
+app.post('/api/admin/pizzas', requireAdmin, upload.single('bild'), (req, res) => {
+  const felder = validierePizzaFelder(req.body);
+  if (!felder) {
+    loescheHochgeladenesBild(req.file && `/uploads/${req.file.filename}`);
+    return res.status(400).json({ error: 'Ungueltige Pizza-Daten' });
+  }
+
+  const bildUrl = req.file ? `/uploads/${req.file.filename}` : null;
+  const info = dbRun(
+    'INSERT INTO pizzas (name, beschreibung, preis, bild_url, verfuegbar) VALUES (?, ?, ?, ?, ?)',
+    [felder.name, felder.beschreibung, felder.preis, bildUrl, felder.verfuegbar]
+  );
+  res.status(201).json(dbGet('SELECT * FROM pizzas WHERE id = ?', [info.lastInsertRowid]));
+});
+
+// Admin: Pizza aktualisieren (Text + optional neues Bild)
+app.put('/api/admin/pizzas/:id', requireAdmin, upload.single('bild'), (req, res) => {
+  const bestehende = dbGet('SELECT * FROM pizzas WHERE id = ?', [req.params.id]);
+  if (!bestehende) {
+    loescheHochgeladenesBild(req.file && `/uploads/${req.file.filename}`);
+    return res.status(404).json({ error: 'Pizza nicht gefunden' });
+  }
+
+  const felder = validierePizzaFelder(req.body);
+  if (!felder) {
+    loescheHochgeladenesBild(req.file && `/uploads/${req.file.filename}`);
+    return res.status(400).json({ error: 'Ungueltige Pizza-Daten' });
+  }
+
+  const bildUrl = req.file ? `/uploads/${req.file.filename}` : bestehende.bild_url;
+  dbRun(
+    'UPDATE pizzas SET name = ?, beschreibung = ?, preis = ?, bild_url = ?, verfuegbar = ? WHERE id = ?',
+    [felder.name, felder.beschreibung, felder.preis, bildUrl, felder.verfuegbar, req.params.id]
+  );
+
+  if (req.file) loescheHochgeladenesBild(bestehende.bild_url);
+  res.json(dbGet('SELECT * FROM pizzas WHERE id = ?', [req.params.id]));
+});
+
+// Admin: Pizza loeschen
+app.delete('/api/admin/pizzas/:id', requireAdmin, (req, res) => {
+  const bestehende = dbGet('SELECT * FROM pizzas WHERE id = ?', [req.params.id]);
+  if (!bestehende) return res.status(404).json({ error: 'Pizza nicht gefunden' });
+
+  dbRun('DELETE FROM pizzas WHERE id = ?', [req.params.id]);
+  loescheHochgeladenesBild(bestehende.bild_url);
+  res.json({ ok: true });
+});
+
 // Tagesbilanz abrufen (ohne Loeschen)
 app.get('/api/admin/bilanz', requireAdmin, (_req, res) => {
   res.json(berechneBilanz());
@@ -228,6 +322,14 @@ app.post('/api/admin/tagesabschluss', requireAdmin, (_req, res) => {
   zuruecksetzen();
   console.log(`Tagesabschluss: ${bilanz.anzahlBestellungen} Bestellungen, €${bilanz.gesamtUmsatz.toFixed(2)}`);
   res.json(bilanz);
+});
+
+// Fehler-Handler fuer Bild-Uploads (falscher Typ, zu gross, etc.)
+app.use((err, _req, res, next) => {
+  if (err instanceof multer.MulterError || err?.message?.includes('Bildtyp')) {
+    return res.status(400).json({ error: err.message });
+  }
+  next(err);
 });
 
 module.exports = { app, initDb };
