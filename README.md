@@ -105,7 +105,7 @@ läuft dort dauerhaft unter PM2, die Pipeline lädt nur Code neu und macht `pm2 
    |---|---|
    | `VSERVER_HOST` | deine Server-IP oder Hostname |
    | `VSERVER_PORT` | `22` |
-   | `VSERVER_USER` | dedizierter Deploy-User, z.B. `deploy` |
+   | `VSERVER_USER` | dedizierter Deploy-User, z.B. `pizzasquad` |
    | `VSERVER_SSH_KEY` | Inhalt von `~/.ssh/pizza_ci_deploy` (privater Schlüssel) |
    | `VSERVER_BACKEND_PATH` | `/var/www/pizza/backend` |
    | `VSERVER_FRONTEND_PATH` | `/var/www/pizza/frontend` |
