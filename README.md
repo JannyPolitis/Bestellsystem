@@ -2,25 +2,39 @@
 
 ## App starten
 
-### 1. Backend starten
+### Einmalig: Abhängigkeiten installieren
 
+```
+npm run install:all
+```
+
+### Alles zusammen starten
+
+```
+npm run dev
+```
+
+Startet Backend (http://localhost:3001) und Frontend (http://localhost:5173) gleichzeitig
+in einem Terminal, farblich getrennt. Zum Beenden: <kbd>Strg</kbd>+<kbd>C</kbd>.
+
+<details>
+<summary>Alternative: Backend und Frontend einzeln starten (zwei Terminals)</summary>
+
+**Terminal 1 – Backend:**
 ```
 cd backend
 node server.js
 ```
-
 Läuft auf: http://localhost:3001
 
----
-
-### 2. Frontend starten (neues Terminal-Fenster)
-
+**Terminal 2 – Frontend:**
 ```
 cd frontend
 npm run dev
 ```
-
 Läuft auf: http://localhost:5173
+
+</details>
 
 ---
 
