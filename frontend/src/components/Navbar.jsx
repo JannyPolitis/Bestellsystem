@@ -9,7 +9,7 @@ export default function Navbar() {
       <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
         <Link to="/" className="flex items-center gap-2 text-xl font-bold text-gray-800 hover:text-red-600 transition-colors">
           <span className="text-2xl">🍕</span>
-          <span>Pizza Food Truck</span>
+          <span>Pizza Squad</span>
         </Link>
 
         <button

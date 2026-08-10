@@ -1,4 +1,4 @@
-# Pizza Food Truck – Bestellsystem
+# Pizza Squad – Bestellsystem
 
 ## App starten
 
