@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 import { useCart } from '../context/CartContext.jsx';
+import logo from '../Logo/PizzaSquad.png';
 
 export default function Navbar() {
   const { gesamtanzahl, setIsOpen } = useCart();
@@ -8,8 +9,8 @@ export default function Navbar() {
     <nav className="fixed top-0 left-0 right-0 z-30 bg-white shadow-sm">
       <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
         <Link to="/" className="flex items-center gap-2 text-xl font-bold text-gray-800 hover:text-red-600 transition-colors">
-          <span className="text-2xl">🍕</span>
-          <span>Pizza Food Truck</span>
+          <img src={logo} alt="Pizza Squad" className="w-14 h-14 rounded-full object-cover" />
+          <span>Pizza Squad</span>
         </Link>
 
         <button

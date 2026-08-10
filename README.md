@@ -1,26 +1,40 @@
-# Pizza Food Truck – Bestellsystem
+# Pizza Squad – Bestellsystem
 
 ## App starten
 
-### 1. Backend starten
+### Einmalig: Abhängigkeiten installieren
 
+```
+npm run install:all
+```
+
+### Alles zusammen starten
+
+```
+npm run dev
+```
+
+Startet Backend (http://localhost:3001) und Frontend (http://localhost:5173) gleichzeitig
+in einem Terminal, farblich getrennt. Zum Beenden: <kbd>Strg</kbd>+<kbd>C</kbd>.
+
+<details>
+<summary>Alternative: Backend und Frontend einzeln starten (zwei Terminals)</summary>
+
+**Terminal 1 – Backend:**
 ```
 cd backend
 node server.js
 ```
-
 Läuft auf: http://localhost:3001
 
----
-
-### 2. Frontend starten (neues Terminal-Fenster)
-
+**Terminal 2 – Frontend:**
 ```
 cd frontend
 npm run dev
 ```
-
 Läuft auf: http://localhost:5173
+
+</details>
 
 ---
 
@@ -52,11 +66,14 @@ dort über "In Arbeit" zu "Fertig".
 
 ## Speisekarte anpassen
 
-Die Pizzen werden beim ersten Start automatisch angelegt. Um sie zu ändern:
+Im Admin-Panel unter dem Tab **"Speisekarte"** lassen sich Pizzen direkt verwalten:
+neue Pizzen anlegen, Name/Beschreibung/Preis bearbeiten, ein Foto hochladen (JPEG/PNG/WebP,
+max. 5 MB), die Sichtbarkeit auf der Speisekarte an-/ausschalten oder eine Pizza ganz
+löschen. Keine Server-Neustarts oder DB-Bearbeitung mehr nötig.
 
-1. Datei `backend/bestellungen.db` löschen
-2. In `backend/server.js` die Liste im `initDb`-Block anpassen (Name, Beschreibung, Preis)
-3. Backend neu starten – die neuen Pizzen werden automatisch eingetragen
+Hochgeladene Bilder landen in `backend/uploads/` und werden unter `/uploads/...`
+ausgeliefert. Dieser Ordner wird von Git und vom Deploy-Prozess ignoriert bzw. nie
+überschrieben, damit Bilder einen Deploy überstehen.
 
 ---
 
