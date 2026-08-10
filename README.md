@@ -108,3 +108,51 @@ Die Pizzen werden beim ersten Start automatisch angelegt. Um sie zu ändern:
 - Frontend mit `npm run build` bauen → Ordner `frontend/dist` auf den Server kopieren
 - In `backend/.env` die `FRONTEND_URL` auf die echte Domain setzen
 - In `frontend/.env` die `VITE_PAYPAL_CLIENT_ID` muss vor dem Build gesetzt sein
+
+---
+
+## CI/CD-Pipeline (GitHub Actions)
+
+Bei jedem Push auf `main` laufen die Backend-Tests, danach wird das Frontend gebaut und
+per SSH/rsync auf den VServer deployt (`.github/workflows/deploy.yml`). Der Node-Prozess
+läuft dort dauerhaft unter PM2, die Pipeline lädt nur Code neu und macht `pm2 reload`
+(kein Downtime).
+
+**Einmalige Einrichtung, bevor die Pipeline zum ersten Mal läuft:**
+
+1. **GitHub-Repo erstellen** (leer, ohne README/Lizenz vorausgewählt) und als Remote setzen:
+   ```
+   git remote add origin <REPO_URL>
+   git push -u origin main
+   ```
+
+2. **Deploy-Key auf dem VServer hinterlegen.** Öffentlichen Schlüssel
+   (`~/.ssh/pizza_ci_deploy.pub` auf diesem Rechner) in die `~/.ssh/authorized_keys`
+   des Deploy-Users auf dem VServer eintragen.
+
+3. **Zielverzeichnisse auf dem VServer anlegen**, z.B.:
+   ```
+   /var/www/pizza/backend
+   /var/www/pizza/frontend
+   ```
+   Im Backend-Verzeichnis einmalig manuell `backend/.env` mit echten Produktions-Werten
+   anlegen (wird von der Pipeline nie überschrieben oder gelöscht).
+
+4. **Nginx** so konfigurieren, dass `/var/www/pizza/frontend` als statische Seite
+   ausgeliefert wird und `/api` auf `http://localhost:3001` (Backend) proxied wird.
+
+5. **Folgende Secrets** unter *GitHub → Settings → Secrets and variables → Actions*
+   anlegen:
+
+   | Secret | Beispielwert |
+   |---|---|
+   | `VSERVER_HOST` | `1.2.3.4` oder Hostname |
+   | `VSERVER_PORT` | `22` |
+   | `VSERVER_USER` | `deploy` |
+   | `VSERVER_SSH_KEY` | Inhalt von `~/.ssh/pizza_ci_deploy` (privater Schlüssel) |
+   | `VSERVER_BACKEND_PATH` | `/var/www/pizza/backend` |
+   | `VSERVER_FRONTEND_PATH` | `/var/www/pizza/frontend` |
+   | `PM2_APP_NAME` | `pizza-backend` |
+   | `VITE_PAYPAL_CLIENT_ID` | deine PayPal Client-ID fürs Produktions-Build |
+
+Danach läuft jeder Push auf `main` automatisch durch: Tests → Build → Deploy.
