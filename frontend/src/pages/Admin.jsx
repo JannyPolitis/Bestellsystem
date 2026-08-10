@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import PizzaFormModal from '../components/PizzaFormModal.jsx';
+import Kasse from '../components/Kasse.jsx';
+import EventModal from '../components/EventModal.jsx';
 import logo from '../Logo/PizzaSquad.png';
 
 const STATUS = {
@@ -196,6 +198,32 @@ export default function Admin() {
   const [pizzenLaedt, setPizzenLaedt] = useState(false);
   const [pizzaFormOffen, setPizzaFormOffen] = useState(false);
   const [bearbeitetePizza, setBearbeitetePizza] = useState(null);
+  const [shopStatus, setShopStatus] = useState(null);
+  const [eventModalOffen, setEventModalOffen] = useState(false);
+
+  const ladeShopStatus = useCallback(async () => {
+    const res = await fetch('/api/status');
+    if (res.ok) setShopStatus(await res.json());
+  }, []);
+
+  useEffect(() => {
+    if (eingeloggt) ladeShopStatus();
+  }, [eingeloggt, ladeShopStatus]);
+
+  const handleShopOeffnen = async () => {
+    const res = await fetch('/api/admin/shop-status', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ offen: true }),
+    });
+    if (res.ok) setShopStatus(await res.json());
+  };
+
+  const handleEventGespeichert = (event) => {
+    setShopStatus(prev => ({ ...prev, event }));
+    setEventModalOffen(false);
+  };
 
   const ladePizzen = useCallback(async () => {
     setPizzenLaedt(true);
@@ -293,6 +321,7 @@ export default function Admin() {
   const handleTagesabschluss = (bilanz) => {
     setBilanzOffen(false);
     setBestellungen([]);
+    setShopStatus(prev => ({ ...prev, offen: false }));
     setErfolg(`Tag abgeschlossen · ${bilanz.anzahlBestellungen} Bestellungen · ${bilanz.gesamtPizzen} Pizzen · € ${bilanz.gesamtUmsatz.toFixed(2)}`);
     setTimeout(() => setErfolg(''), 8000);
   };
@@ -340,6 +369,14 @@ export default function Admin() {
         />
       )}
 
+      {eventModalOffen && (
+        <EventModal
+          event={shopStatus?.event}
+          onClose={() => setEventModalOffen(false)}
+          onSaved={handleEventGespeichert}
+        />
+      )}
+
       {/* Header */}
       <div className="bg-white shadow-sm sticky top-0 z-10">
         <div className="max-w-4xl mx-auto px-4">
@@ -359,12 +396,29 @@ export default function Admin() {
                 </button>
               )}
               <button
-                onClick={() => setBilanzOffen(true)}
-                className="bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded-lg transition-colors text-sm font-semibold flex items-center gap-1"
+                onClick={() => setEventModalOffen(true)}
+                className="text-gray-400 hover:text-gray-600 px-3 py-1.5 rounded-lg hover:bg-gray-100 transition-colors text-sm font-semibold flex items-center gap-1"
               >
-                <span>🏁</span>
-                <span className="hidden sm:inline">Geschäft beenden</span>
+                <span>📅</span>
+                <span className="hidden sm:inline">Event</span>
               </button>
+              {shopStatus?.offen === false ? (
+                <button
+                  onClick={handleShopOeffnen}
+                  className="bg-green-600 hover:bg-green-700 text-white px-3 py-1.5 rounded-lg transition-colors text-sm font-semibold flex items-center gap-1"
+                >
+                  <span>🚀</span>
+                  <span className="hidden sm:inline">Geschäft öffnen</span>
+                </button>
+              ) : (
+                <button
+                  onClick={() => setBilanzOffen(true)}
+                  className="bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded-lg transition-colors text-sm font-semibold flex items-center gap-1"
+                >
+                  <span>🏁</span>
+                  <span className="hidden sm:inline">Geschäft beenden</span>
+                </button>
+              )}
               <button
                 onClick={handleLogout}
                 className="text-gray-400 hover:text-gray-600 px-3 py-1.5 rounded-lg hover:bg-gray-100 transition-colors text-sm"
@@ -378,6 +432,7 @@ export default function Admin() {
           <div className="flex gap-1 -mb-px">
             {[
               { key: 'bestellungen', label: 'Bestellungen' },
+              { key: 'kasse', label: 'Kasse' },
               { key: 'speisekarte', label: 'Speisekarte' },
             ].map(a => (
               <button
@@ -466,7 +521,7 @@ export default function Admin() {
                   <div key={p.id} className={`bg-white rounded-2xl shadow-sm border border-gray-50 overflow-hidden ${!p.verfuegbar ? 'opacity-60' : ''}`}>
                     <div className="h-32 bg-gray-100 flex items-center justify-center overflow-hidden">
                       {p.bild_url ? (
-                        <img src={p.bild_url} alt={p.name} className="w-full h-full object-cover" />
+                        <img src={p.bild_url} alt={p.name} className="w-full h-full object-contain" />
                       ) : (
                         <span className="text-4xl">🍕</span>
                       )}
@@ -511,6 +566,10 @@ export default function Admin() {
         </>
       )}
 
+      {ansicht === 'kasse' && (
+        <Kasse onBestellungErstellt={ladeBestellungen} />
+      )}
+
       {/* Bestellungen */}
       {ansicht === 'bestellungen' && (
       <div className="max-w-4xl mx-auto px-4 py-5">
@@ -534,15 +593,26 @@ export default function Admin() {
                     <div className="flex items-center gap-3">
                       <span className="text-3xl font-bold text-red-600 font-mono">#{b.bestellnummer}</span>
                       <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${s.badge}`}>{s.label}</span>
+                      {b.quelle === 'theke' && (
+                        <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-gray-100 text-gray-500">Theke</span>
+                      )}
                     </div>
                     <span className="text-sm text-gray-400">{formatZeit(b.erstellt_am)}</span>
                   </div>
 
-                  <ul className="text-sm text-gray-500 space-y-0.5 mb-4">
+                  <ul className="space-y-2 mb-4">
                     {b.artikel.map((a, i) => (
-                      <li key={i}>
-                        <span className="font-semibold text-gray-700">{a.menge}×</span> {a.name} (30 cm)
-                        <span className="text-gray-400 ml-1">· € {(a.preis * a.menge).toFixed(2)}</span>
+                      <li key={i} className="flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <span className="shrink-0 bg-red-50 text-red-600 font-extrabold text-lg px-2.5 py-0.5 rounded-lg">
+                            {a.menge}×
+                          </span>
+                          <span className="font-bold text-gray-800 text-lg truncate">{a.name}</span>
+                          <span className="text-gray-400 text-sm shrink-0">(30 cm)</span>
+                        </div>
+                        <span className="font-bold text-gray-600 text-lg shrink-0">
+                          € {(a.preis * a.menge).toFixed(2)}
+                        </span>
                       </li>
                     ))}
                   </ul>

@@ -126,6 +126,28 @@ function berechneBilanz() {
   };
 }
 
+// Shop-Status (offen/geschlossen) + naechstes Event aus Einstellungen lesen
+function holeStatus() {
+  const offen = dbGet("SELECT wert FROM einstellungen WHERE schluessel = 'shop_offen'")?.wert !== '0';
+  const datum = dbGet("SELECT wert FROM einstellungen WHERE schluessel = 'event_datum'")?.wert || '';
+  const uhrzeit = dbGet("SELECT wert FROM einstellungen WHERE schluessel = 'event_uhrzeit'")?.wert || '';
+  const ort = dbGet("SELECT wert FROM einstellungen WHERE schluessel = 'event_ort'")?.wert || '';
+  return { offen, event: { datum, uhrzeit, ort } };
+}
+
+// Prueft Datum/Uhrzeit/Ort fuers naechste Event
+function validiereEventFelder(body) {
+  const datum = String(body?.datum ?? '').trim();
+  const uhrzeit = String(body?.uhrzeit ?? '').trim();
+  const ort = String(body?.ort ?? '').trim();
+
+  if (datum && !/^\d{4}-\d{2}-\d{2}$/.test(datum)) return null;
+  if (uhrzeit && !/^\d{2}:\d{2}$/.test(uhrzeit)) return null;
+  if (ort.length > 200) return null;
+
+  return { datum, uhrzeit, ort };
+}
+
 // --- Datenbank initialisieren ---
 function initDb() {
   db = new Database(DB_FILE);
@@ -145,13 +167,22 @@ function initDb() {
     artikel TEXT NOT NULL,
     gesamtpreis REAL NOT NULL,
     status TEXT DEFAULT 'neu',
+    quelle TEXT DEFAULT 'online',
     erstellt_am TEXT DEFAULT (strftime('%Y-%m-%d %H:%M:%S', 'now', 'localtime'))
   )`);
+  const bestellungenSpalten = db.prepare("PRAGMA table_info(bestellungen)").all();
+  if (!bestellungenSpalten.some(s => s.name === 'quelle')) {
+    db.exec("ALTER TABLE bestellungen ADD COLUMN quelle TEXT DEFAULT 'online'");
+  }
   db.exec(`CREATE TABLE IF NOT EXISTS einstellungen (
     schluessel TEXT PRIMARY KEY,
     wert TEXT NOT NULL
   )`);
   db.exec(`INSERT OR IGNORE INTO einstellungen (schluessel, wert) VALUES ('naechste_nummer', '100')`);
+  db.exec(`INSERT OR IGNORE INTO einstellungen (schluessel, wert) VALUES ('shop_offen', '1')`);
+  db.exec(`INSERT OR IGNORE INTO einstellungen (schluessel, wert) VALUES ('event_datum', '')`);
+  db.exec(`INSERT OR IGNORE INTO einstellungen (schluessel, wert) VALUES ('event_uhrzeit', '')`);
+  db.exec(`INSERT OR IGNORE INTO einstellungen (schluessel, wert) VALUES ('event_ort', '')`);
 
   const count = dbGet('SELECT COUNT(*) as n FROM pizzas');
   if (!count || count.n === 0) {
@@ -193,6 +224,11 @@ app.get('/api/pizzas', (_req, res) => {
   res.json(dbAll('SELECT * FROM pizzas WHERE verfuegbar = 1 ORDER BY id'));
 });
 
+// Oeffentlich: Shop-Status (offen/geschlossen) + naechstes Event
+app.get('/api/status', (_req, res) => {
+  res.json(holeStatus());
+});
+
 // Oeffentlich: Kunde pollt seinen Bestellstatus
 app.get('/api/bestellung/:nr/status', (req, res) => {
   const row = dbGet('SELECT status FROM bestellungen WHERE bestellnummer = ?', [req.params.nr]);
@@ -202,6 +238,8 @@ app.get('/api/bestellung/:nr/status', (req, res) => {
 
 // Bestellung aufgeben (Barzahlung bei Abholung)
 app.post('/api/bestellung', (req, res) => {
+  if (!holeStatus().offen) return res.status(403).json({ error: 'Der Shop ist aktuell geschlossen' });
+
   const artikel = validiereArtikel(req.body.artikel);
   if (!artikel) return res.status(400).json({ error: 'Ungueltige Artikel' });
 
@@ -250,6 +288,22 @@ app.put('/api/admin/bestellungen/:id/status', requireAdmin, (req, res) => {
   }
   dbRun('UPDATE bestellungen SET status = ? WHERE id = ?', [status, req.params.id]);
   res.json({ ok: true });
+});
+
+// Admin: Bestellung manuell an der Theke aufnehmen (Kunde ohne Handy/Internet)
+app.post('/api/admin/bestellung', requireAdmin, (req, res) => {
+  const artikel = validiereArtikel(req.body.artikel);
+  if (!artikel) return res.status(400).json({ error: 'Ungueltige Artikel' });
+
+  const bestellnummer = naechsteBestellnummer();
+  const gesamt = artikel.reduce((s, a) => s + a.preis * a.menge, 0);
+
+  dbRun(
+    `INSERT INTO bestellungen (bestellnummer, artikel, gesamtpreis, status, quelle) VALUES (?, ?, ?, 'neu', 'theke')`,
+    [bestellnummer, JSON.stringify(artikel), gesamt]
+  );
+
+  res.json({ bestellnummer, gesamtpreis: gesamt });
 });
 
 // Admin: alle Pizzen inkl. nicht verfuegbarer, fuer die Speisekarten-Verwaltung
@@ -312,16 +366,34 @@ app.get('/api/admin/bilanz', requireAdmin, (_req, res) => {
   res.json(berechneBilanz());
 });
 
-// Tagesabschluss: Bilanz zurueckgeben, Daten loeschen, Zaehler zuruecksetzen
+// Tagesabschluss: Bilanz zurueckgeben, Daten loeschen, Zaehler zuruecksetzen, Shop schliessen
 app.post('/api/admin/tagesabschluss', requireAdmin, (_req, res) => {
   const bilanz = berechneBilanz();
   const zuruecksetzen = db.transaction(() => {
     db.exec('DELETE FROM bestellungen');
     dbRun(`INSERT OR REPLACE INTO einstellungen (schluessel, wert) VALUES ('naechste_nummer', '100')`);
+    dbRun(`INSERT OR REPLACE INTO einstellungen (schluessel, wert) VALUES ('shop_offen', '0')`);
   });
   zuruecksetzen();
   console.log(`Tagesabschluss: ${bilanz.anzahlBestellungen} Bestellungen, €${bilanz.gesamtUmsatz.toFixed(2)}`);
   res.json(bilanz);
+});
+
+// Admin: Shop oeffnen/schliessen
+app.put('/api/admin/shop-status', requireAdmin, (req, res) => {
+  dbRun(`INSERT OR REPLACE INTO einstellungen (schluessel, wert) VALUES ('shop_offen', ?)`, [req.body.offen ? '1' : '0']);
+  res.json(holeStatus());
+});
+
+// Admin: naechstes Event (Datum/Uhrzeit/Ort) pflegen
+app.put('/api/admin/event', requireAdmin, (req, res) => {
+  const felder = validiereEventFelder(req.body);
+  if (!felder) return res.status(400).json({ error: 'Ungueltige Event-Daten' });
+
+  dbRun(`INSERT OR REPLACE INTO einstellungen (schluessel, wert) VALUES ('event_datum', ?)`, [felder.datum]);
+  dbRun(`INSERT OR REPLACE INTO einstellungen (schluessel, wert) VALUES ('event_uhrzeit', ?)`, [felder.uhrzeit]);
+  dbRun(`INSERT OR REPLACE INTO einstellungen (schluessel, wert) VALUES ('event_ort', ?)`, [felder.ort]);
+  res.json(holeStatus());
 });
 
 // Fehler-Handler fuer Bild-Uploads (falscher Typ, zu gross, etc.)

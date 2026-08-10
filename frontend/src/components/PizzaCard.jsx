@@ -21,7 +21,7 @@ export default function PizzaCard({ pizza, onAuswahl }) {
     >
       <div className={`bg-gradient-to-br ${gradient} h-40 flex items-center justify-center relative overflow-hidden`}>
         {pizza.bild_url ? (
-          <img src={pizza.bild_url} alt={pizza.name} className="w-full h-full object-cover" />
+          <img src={pizza.bild_url} alt={pizza.name} className="w-full h-full object-contain" />
         ) : (
           <span className="text-7xl select-none drop-shadow-md">🍕</span>
         )}
