@@ -79,6 +79,47 @@ export default function Confirmation() {
   const decodedNr = decodeURIComponent(bestellnummer);
   const [status, setStatus] = useState('neu');
   const pollingRef = useRef(true);
+  const vorherigerStatusRef = useRef(null);
+  const audioCtxRef = useRef(null);
+
+  // iOS erlaubt Sound nur nach einer echten Nutzer-Interaktion – deshalb wird der
+  // AudioContext beim ersten Antippen der Seite "freigeschaltet" und kann danach
+  // auch automatisch (ohne erneute Interaktion) einen Ton abspielen.
+  useEffect(() => {
+    const AudioContextKlasse = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextKlasse) return;
+
+    const freischalten = () => {
+      if (!audioCtxRef.current) audioCtxRef.current = new AudioContextKlasse();
+      if (audioCtxRef.current.state === 'suspended') audioCtxRef.current.resume();
+    };
+
+    window.addEventListener('touchstart', freischalten, { once: true });
+    window.addEventListener('click', freischalten, { once: true });
+    return () => {
+      window.removeEventListener('touchstart', freischalten);
+      window.removeEventListener('click', freischalten);
+    };
+  }, []);
+
+  const spieleBenachrichtigungston = () => {
+    const ctx = audioCtxRef.current;
+    if (!ctx) return;
+    [880, 660].forEach((frequenz, i) => {
+      const start = ctx.currentTime + i * 0.18;
+      const oszillator = ctx.createOscillator();
+      const gain = ctx.createGain();
+      oszillator.connect(gain);
+      gain.connect(ctx.destination);
+      oszillator.type = 'sine';
+      oszillator.frequency.value = frequenz;
+      gain.gain.setValueAtTime(0.001, start);
+      gain.gain.exponentialRampToValueAtTime(0.3, start + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.001, start + 0.2);
+      oszillator.start(start);
+      oszillator.stop(start + 0.22);
+    });
+  };
 
   useEffect(() => {
     pollingRef.current = true;
@@ -90,6 +131,15 @@ export default function Confirmation() {
         if (res.ok) {
           const data = await res.json();
           const neuerStatus = data.status || 'neu';
+          if (
+            neuerStatus === 'fertig' &&
+            vorherigerStatusRef.current !== null &&
+            vorherigerStatusRef.current !== 'fertig'
+          ) {
+            if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+            spieleBenachrichtigungston();
+          }
+          vorherigerStatusRef.current = neuerStatus;
           setStatus(neuerStatus);
           if (neuerStatus === 'fertig') pollingRef.current = false;
         } else if (res.status === 404) {
